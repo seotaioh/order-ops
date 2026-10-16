@@ -11,6 +11,14 @@ function stockOf(productId: string): number {
   return product.stock;
 }
 
+/** 정책 확정 응답의 시각 필드는 ISO 8601(UTC, 밀리초)이어야 한다. */
+function expectIso(value: unknown): void {
+  expect(typeof value).toBe('string');
+  const text = value as string;
+  expect(text).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  expect(new Date(text).toISOString()).toBe(text);
+}
+
 async function createOrder(items: Array<{ productId: string; quantity: number }>) {
   return request(app).post('/orders').send({ items });
 }
@@ -80,8 +88,8 @@ describe('inventory policy — order creation', () => {
 
     const response = await createOrder([{ productId: 'monitor', quantity: before + 1 }]);
 
-    expect(response.status).not.toBe(201);
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ message: 'Insufficient stock', productId: 'monitor' });
     expect(orders.size).toBe(0);
     expect(stockOf('monitor')).toBe(before);
   });
@@ -94,7 +102,8 @@ describe('inventory policy — order creation', () => {
       { productId: 'mouse', quantity: 5 },
     ]);
 
-    expect(response.status).not.toBe(201);
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ message: 'Insufficient stock', productId: 'mouse' });
     expect(orders.size).toBe(0);
     expect(stockOf('mouse')).toBe(before);
   });
@@ -108,7 +117,8 @@ describe('inventory policy — order creation', () => {
       { productId: 'monitor', quantity: monitorBefore + 1 },
     ]);
 
-    expect(response.status).not.toBe(201);
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ message: 'Insufficient stock', productId: 'monitor' });
     expect(orders.size).toBe(0);
     expect(stockOf('keyboard')).toBe(keyboardBefore);
     expect(stockOf('monitor')).toBe(monitorBefore);
@@ -162,7 +172,8 @@ describe('payment success', () => {
 
     const response = await pay(orderId, 'CARD-2');
 
-    expect(response.status).not.toBe(200);
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ message: 'Insufficient stock', productId: 'monitor' });
     expect(orders.get(orderId)?.status).toBe('pending');
     expect(stockOf('monitor')).toBe(1);
     expect(paymentAttempts.filter((a) => a.orderId === orderId)).toHaveLength(0);
@@ -185,7 +196,7 @@ describe('payment failure', () => {
     expect(response.body.ok).toBe(false);
     expect(response.body.status).toBe('payment_failed');
     expect(response.body.failure).toMatchObject({ amountKrw: 49_000, reason: expect.any(String) });
-    expect(typeof response.body.failure.at).toBe('string');
+    expectIso(response.body.failure.at);
     expect(JSON.stringify(response.body)).not.toContain('FAIL-123');
 
     const fetched = await request(app).get(`/orders/${orderId}`);
@@ -237,7 +248,7 @@ describe('admin order list', () => {
     expect(row).toBeDefined();
     expect(row?.status).toBe('payment_failed');
     expect(row?.failure).toMatchObject({ amountKrw: 46_000, reason: expect.any(String) });
-    expect(typeof (row?.failure as Record<string, unknown>).at).toBe('string');
+    expectIso((row?.failure as Record<string, unknown>).at);
     expect(JSON.stringify(row)).not.toContain('FAIL-1');
   });
 
@@ -251,6 +262,7 @@ describe('admin order list', () => {
     const pendingRow = rows.find((o) => o.id === pendingOrder.body.id);
     const paidRow = rows.find((o) => o.id === paidOrder.body.id);
 
+    expect(rows).toHaveLength(orders.size); // 저장된 주문 전부가 관리자 목록의 기준
     expect(pendingRow?.status).toBe('pending');
     expect(paidRow?.status).toBe('paid');
     expect(pendingRow).not.toHaveProperty('failure');
@@ -330,8 +342,8 @@ describe('refund flow', () => {
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(response.body.order.status).toBe('refunded');
-    expect(response.body.refund).toMatchObject({ amountKrw: 98_000 });
-    expect(typeof response.body.refund.at).toBe('string');
+    expect(response.body.refund).toEqual({ amountKrw: 98_000, at: expect.any(String) });
+    expectIso(response.body.refund.at);
     expect(orders.get(orderId)?.status).toBe('refunded');
     expect(stockOf('keyboard')).toBe(before);
     expect(refunds.filter((r) => r.orderId === orderId)).toHaveLength(1);
@@ -348,7 +360,8 @@ describe('refund flow', () => {
 
     const response = await refund(orderId);
 
-    expect(response.status).not.toBe(200);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'Order is not refundable', status: 'pending' });
     expect(orders.get(orderId)?.status).toBe('pending');
     expect(stockOf('mouse')).toBe(before);
     expect(refunds).toHaveLength(0);
@@ -362,7 +375,8 @@ describe('refund flow', () => {
 
     const response = await refund(orderId);
 
-    expect(response.status).not.toBe(200);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'Order is not refundable', status: 'payment_failed' });
     expect(orders.get(orderId)?.status).toBe('payment_failed');
     expect(stockOf('mouse')).toBe(before);
     expect(refunds).toHaveLength(0);
@@ -375,7 +389,8 @@ describe('refund flow', () => {
 
     const second = await refund(orderId);
 
-    expect(second.status).not.toBe(200);
+    expect(second.status).toBe(400);
+    expect(second.body).toEqual({ message: 'Order is not refundable', status: 'refunded' });
     expect(orders.get(orderId)?.status).toBe('refunded');
     expect(stockOf('monitor')).toBe(before);
     expect(refunds.filter((r) => r.orderId === orderId)).toHaveLength(1);
@@ -419,8 +434,8 @@ describe('refund flow', () => {
 
     expect(response.status).toBe(200);
     expect(refundedRow?.status).toBe('refunded');
-    expect(refundedRow?.refund).toMatchObject({ amountKrw: 49_000 });
-    expect(typeof (refundedRow?.refund as Record<string, unknown>).at).toBe('string');
+    expect(refundedRow?.refund).toEqual({ amountKrw: 49_000, at: expect.any(String) });
+    expectIso((refundedRow?.refund as Record<string, unknown>).at);
     expect(refundedRow).not.toHaveProperty('failure');
     expect(paidRow).not.toHaveProperty('refund');
   });
@@ -446,7 +461,7 @@ describe('cancel flow', () => {
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(response.body.order.status).toBe('cancelled');
-    expect(typeof response.body.cancellation.at).toBe('string');
+    expectIso(response.body.cancellation.at);
     expect(orders.get(orderId)?.status).toBe('cancelled');
     expect(stockOf('keyboard')).toBe(before);
     expect(cancellations.filter((c) => c.orderId === orderId)).toHaveLength(1);
@@ -463,7 +478,8 @@ describe('cancel flow', () => {
 
     const response = await cancel(orderId);
 
-    expect(response.status).not.toBe(200);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ message: 'Order is not cancellable', status: 'paid' });
     expect(orders.get(orderId)?.status).toBe('paid');
     expect(stockOf('keyboard')).toBe(before);
     expect(cancellations).toHaveLength(0);
@@ -479,8 +495,10 @@ describe('cancel flow', () => {
     const failedResponse = await cancel(failedId);
     const refundedResponse = await cancel(refundedId);
 
-    expect(failedResponse.status).not.toBe(200);
-    expect(refundedResponse.status).not.toBe(200);
+    expect(failedResponse.status).toBe(400);
+    expect(failedResponse.body).toEqual({ message: 'Order is not cancellable', status: 'payment_failed' });
+    expect(refundedResponse.status).toBe(400);
+    expect(refundedResponse.body).toEqual({ message: 'Order is not cancellable', status: 'refunded' });
     expect(orders.get(failedId)?.status).toBe('payment_failed');
     expect(orders.get(refundedId)?.status).toBe('refunded');
     expect(cancellations).toHaveLength(0);
@@ -492,7 +510,8 @@ describe('cancel flow', () => {
 
     const second = await cancel(orderId);
 
-    expect(second.status).not.toBe(200);
+    expect(second.status).toBe(400);
+    expect(second.body).toEqual({ message: 'Order is not cancellable', status: 'cancelled' });
     expect(cancellations.filter((c) => c.orderId === orderId)).toHaveLength(1);
   });
 
@@ -511,7 +530,8 @@ describe('cancel flow', () => {
       reason: 'order_cancelled',
       nextAction: 'create_new_order',
     });
-    expect(refundResponse.status).not.toBe(200);
+    expect(refundResponse.status).toBe(400);
+    expect(refundResponse.body).toEqual({ message: 'Order is not refundable', status: 'cancelled' });
     expect(orders.get(orderId)?.status).toBe('cancelled');
     expect(stockOf('monitor')).toBe(before);
     expect(paymentAttempts).toHaveLength(0);
@@ -536,7 +556,7 @@ describe('cancel flow', () => {
 
     expect(response.status).toBe(200);
     expect(cancelledRow?.status).toBe('cancelled');
-    expect(typeof (cancelledRow?.cancellation as Record<string, unknown>).at).toBe('string');
+    expectIso((cancelledRow?.cancellation as Record<string, unknown>).at);
     expect(cancelledRow).not.toHaveProperty('failure');
     expect(cancelledRow).not.toHaveProperty('refund');
     expect(pendingRow).not.toHaveProperty('cancellation');
