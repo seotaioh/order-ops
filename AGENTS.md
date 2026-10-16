@@ -21,6 +21,17 @@
 
 필요한 정책 문서나 적용 기준이 없거나, 관련 정책끼리 같은 사건에 다른 상태·결제 결과·재고 결과·관리자 표시를 요구하거나, 요청한 동작이 정책에서 보류되어 있으면 편집 전에 멈춘다. 누락·충돌·보류 지점과 필요한 결정을 밝히고 사람의 확인을 받은 뒤에만 편집한다.
 
+### Prompts and Templates
+
+| 상황 | 쓰는 문서 |
+| --- | --- |
+| 계획 작성 | `docs/templates/implementation-plan.md` 골격, 역할은 `docs/prompts/planner.md` |
+| 테스트 추가·보강 | `docs/prompts/test-generation.md` |
+| 구현·리뷰 역할 분리 | `docs/prompts/implementer.md`, `docs/prompts/reviewer.md` |
+| 자기 검토(PR 전) | `docs/prompts/self-review.md`, 체크리스트 `docs/checklists/pr-preflight.md`, 환각 점검 `docs/checklists/hallucination-guard.md` |
+| PR 설명 | `docs/prompts/pr-description.md`, 템플릿 `.github/pull_request_template.md` |
+| Issue에서 시작 | `docs/prompts/issue-kickoff.md`, 템플릿 `.github/ISSUE_TEMPLATE/workflow-task.md` |
+
 ## Commands
 
 - `npm run dev` — 개발 서버를 실행한다.
