@@ -90,6 +90,7 @@
 ### `refunded` 주문 표시 조건 (2026-10-16 확정)
 
 - `order.status === "refunded"`일 때만 환불 정보 `refund { amountKrw, at }`를 붙인다. 환불 이력이 있다는 이유만으로 다른 상태를 덮어쓰지 않는다.
+- 관리자 목록의 시각 필드(`createdAt`, `failure.at`, `refund.at`, `cancellation.at`)는 `Date#toISOString()` 형식의 ISO 8601 UTC(밀리초, `Z`)다 (2026-10-16 확정).
 - `refunded` 주문의 환불 이력이 정확히 하나가 아니면 데이터 불일치로 판정하고, 결제 실패 불일치와 같은 방식으로 `500`과 `{ "message": "Inconsistent refund record", "orderId" }`를 반환한다.
 
 ### `cancelled` 주문 표시 조건 (2026-10-16 확정)

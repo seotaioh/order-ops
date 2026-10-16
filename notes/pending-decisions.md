@@ -139,7 +139,7 @@ reviewer 발견 사항 중 소유자가 「보류 항목으로 기록 / 별도 �
 
 ### 테스트 보강 후보 (권고)
 
-처리 상태: 보류 — `failure.at`·`refund.at`·`cancellation.at`의 ISO 8601 형식 단언, 관리자 목록 행 수 = 생성 주문 수 단언, 재고 부족 409 본문(`message`, `productId`) 정확값 단언.
+처리 상태: **완료(2026-10-16)** — `failure.at`·`refund.at`·`cancellation.at`의 ISO 8601 형식 단언, 관리자 목록 행 수 = 생성 주문 수 단언, 재고 부족 409 본문(`message`, `productId`) 정확값 단언, 환불·취소 거부 400 본문 정확값 단언을 `tests/orders.test.ts`에 반영(계획 `notes/plans/p1-exact-assertions.md`).
 
 ### 처리되지 않은 예외의 500 응답 형식 (PI-1)
 

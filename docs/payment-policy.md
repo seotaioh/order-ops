@@ -51,6 +51,8 @@
 | `refunded` | `order_refunded` | `create_new_order` |
 | 그 밖의 결제 불가 (`pending`이지만 결제 조건 미충족) | `not_payable` | `none` |
 
+응답과 이력의 시각 필드(`failure.at`, `refund.at`, 결제 시도의 `at`)는 `Date#toISOString()` 형식의 ISO 8601 UTC(밀리초, `Z`)다 (2026-10-16 확정).
+
 `reason`과 `nextAction`은 위 고정 코드만 쓴다. 카드 정보·내부 오류·원시 오류 응답은 넣지 않는다. 거부 요청을 이력으로 남기지 않는 이유는 관리자 조회 기준의 「`payment_failed` 주문의 실패 이력은 정확히 하나」 불변식을 지키기 위해서다.
 
 ## 환불 (2026-10-16 확정)
