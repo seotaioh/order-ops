@@ -14,13 +14,13 @@
 | `src/admin.ts` | 저장 상태 그대로 표시(`'결제실패'` 파생 제거). `payment_failed` 주문에만 `failure{amountKrw, at, reason}` 첨부. 상태·이력 불일치는 500으로 드러냄. 빈 배열로 삼키던 catch 제거 | 주문 정책 관리자 조회 기준·노출 제외 정보 |
 | `tests/orders.test.ts` | 기존 4개 유지 + 승인된 6개 시나리오를 11개 테스트로 추가 | 계획의 검증 시나리오·테스트 범위 결정 |
 
-## 보류 정책에 대해 이번에 고른 값 (사람 확인 완료: 2026-10-16, 저장소 소유자)
+## 보류 정책에 대해 이번에 고른 값 (2026-10-16 저장소 소유자가 확정, 정책 문서에 반영 완료)
 
-문서가 비워 둔 지점이다. 테스트는 이 값에 의존하지 않도록 상태 코드 대신 「201 아님 / 저장 안 됨 / 재고 불변」으로 판정한다.
+문서가 비워 두었던 지점이다. 확정 뒤 `docs/inventory-policy.md`·`docs/payment-policy.md`·`docs/order-policy.md`와 `notes/pending-decisions.md`에 올렸다. 테스트는 이 값에 의존하지 않도록 상태 코드 대신 「201 아님 / 저장 안 됨 / 재고 불변」으로 판정한다.
 
 | 지점 | 고른 값 | 비고 |
 | --- | --- | --- |
-| 주문 생성 시 재고 부족 응답 | `409 Conflict` `{ message: 'Insufficient stock', productId }` | 정책 문서에 승격하려면 `docs/inventory-policy.md` 보류 사항을 갱신해야 함 |
+| 주문 생성 시 재고 부족 응답 | `409 Conflict` `{ message: 'Insufficient stock', productId }` | `docs/inventory-policy.md` 「재고 부족 응답」 |
 | `payment_failed` 주문 재결제 거부 응답 | 기존 분기 유지: `400 { message: 'Order is not payable' }` | 새 정책을 만들지 않음 |
 | 결제 시점 재고 부족 | `409`, 주문 `pending` 유지, 결제 시도 이력 미기록, 재고 불변 | 카드 처리 단계에 진입하지 않았으므로 이력을 남기지 않음 |
 | 관리자: `payment_failed` 주문의 실패 이력이 0개 또는 2개 이상 | 데이터 불일치로 보고 `500 { message, orderId }` | 여러 이력 중 선택 기준은 정책상 사람 결정 필요. 현재 흐름(재결제 금지)에서는 발생하지 않음 |
@@ -36,6 +36,5 @@
 
 ## 남은 위험과 미결
 
-- 위 표의 보류 값 4개는 코드에는 들어갔지만 `docs/` 정책에는 아직 승격되지 않았다. 유지하려면 각 정책 문서의 보류 사항 절을 갱신해야 한다.
 - `cancelled`, `refunded` 흐름과 환불 API는 계획대로 제외했다. `OrderStatus`에 `refunded`는 추가하지 않았다.
 - 저장소는 여전히 메모리 기반이라 서버 재시작 시 데이터가 사라진다(계획의 제외 범위).

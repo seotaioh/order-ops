@@ -68,3 +68,23 @@ plan 적용 위치: [테스트·검증 계획](order-status-plan.md#테스트검
 실제 선택 결과: 주문 수량이 현재 재고보다 많으면 주문을 저장하거나 재고를 변경하기 전에 차단한다.
 
 plan 적용 위치: [수정 범위 — 주문 생성과 재고 부족 주문 차단](order-status-plan.md#수정-범위), [검증 시나리오 — 재고 부족 주문 차단](order-status-plan.md#검증-시나리오)
+
+## 2026-10-16 구현 시 확정 (보류 항목)
+
+구현 단계에서 정책 문서가 비워 둔 지점을 저장소 소유자가 확정했다. 적용 위치는 각 정책 문서의 「확정」 절과 [구현 기록](order-status-implementation.md).
+
+### 주문 생성 시 재고 부족 응답
+
+처리 상태: 확정 — `409 Conflict`, `{ message: 'Insufficient stock', productId }`. 주문 미저장, 재고 불변. 적용: `docs/inventory-policy.md` 「재고 부족 응답」
+
+### `payment_failed` 주문 재결제 거부 응답
+
+처리 상태: 확정 — 기존 `400 { message: 'Order is not payable' }` 유지, 새 정책을 만들지 않음. 적용: `docs/payment-policy.md` 「확정된 응답」
+
+### 결제 시점 재고 부족
+
+처리 상태: 확정 — `409`, 주문 `pending` 유지, 결제 시도 이력 미기록, 재고 불변. 적용: `docs/inventory-policy.md`, `docs/payment-policy.md`
+
+### 관리자 목록에서 `payment_failed` 주문의 실패 이력이 하나가 아닐 때
+
+처리 상태: 확정 — 데이터 불일치로 보고 `500 { message: 'Inconsistent payment failure record', orderId }`. 여러 이력 중 선택 규칙은 만들지 않음. 적용: `docs/order-policy.md` 「`payment_failed` 주문 표시 조건」
