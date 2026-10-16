@@ -32,6 +32,12 @@ export interface PaymentAttempt {
   failureReason?: PaymentFailureReason;
 }
 
+/** 결제 전 취소 이력. 취소는 pending 주문에만 허용되므로 재고·금액 변동이 없다. */
+export interface Cancellation {
+  orderId: string;
+  at: string;
+}
+
 /** 환불 완료 이력. 전액 환불만 지원하므로 금액은 주문 총액과 같다. */
 export interface Refund {
   orderId: string;
@@ -49,12 +55,14 @@ export const products = new Map<string, Product>();
 export const orders = new Map<string, Order>();
 export const paymentAttempts: PaymentAttempt[] = [];
 export const refunds: Refund[] = [];
+export const cancellations: Cancellation[] = [];
 
 export function resetStore(): void {
   products.clear();
   orders.clear();
   paymentAttempts.length = 0;
   refunds.length = 0;
+  cancellations.length = 0;
 
   for (const product of seedProducts) {
     products.set(product.id, { ...product });
