@@ -142,7 +142,13 @@ describe('payment success', () => {
 
     const second = await pay(orderId, 'CARD-456');
 
-    expect(second.status).not.toBe(200);
+    expect(second.status).toBe(400);
+    expect(second.body).toEqual({
+      message: 'Order is not payable',
+      status: 'paid',
+      reason: 'already_paid',
+      nextAction: 'none',
+    });
     expect(orders.get(orderId)?.status).toBe('paid');
     expect(stockOf('keyboard')).toBe(before - 2);
     expect(paymentAttempts.filter((a) => a.orderId === orderId)).toHaveLength(1);
@@ -201,7 +207,13 @@ describe('payment failure', () => {
 
     const retry = await pay(orderId, 'CARD-999');
 
-    expect(retry.status).not.toBe(200);
+    expect(retry.status).toBe(400);
+    expect(retry.body).toEqual({
+      message: 'Order is not payable',
+      status: 'payment_failed',
+      reason: 'repayment_not_allowed',
+      nextAction: 'create_new_order',
+    });
     expect(orders.get(orderId)?.status).toBe('payment_failed');
     expect(paymentAttempts.length).toBe(attemptsBefore);
     expect(stockOf('keyboard')).toBe(before);
@@ -377,7 +389,13 @@ describe('refund flow', () => {
 
     const response = await pay(orderId, 'CARD-2');
 
-    expect(response.status).not.toBe(200);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      message: 'Order is not payable',
+      status: 'refunded',
+      reason: 'order_refunded',
+      nextAction: 'create_new_order',
+    });
     expect(orders.get(orderId)?.status).toBe('refunded');
     expect(stockOf('keyboard')).toBe(before);
     expect(paymentAttempts.length).toBe(attemptsBefore);
@@ -486,7 +504,13 @@ describe('cancel flow', () => {
     const payResponse = await pay(orderId, 'CARD-1');
     const refundResponse = await refund(orderId);
 
-    expect(payResponse.status).not.toBe(200);
+    expect(payResponse.status).toBe(400);
+    expect(payResponse.body).toEqual({
+      message: 'Order is not payable',
+      status: 'cancelled',
+      reason: 'order_cancelled',
+      nextAction: 'create_new_order',
+    });
     expect(refundResponse.status).not.toBe(200);
     expect(orders.get(orderId)?.status).toBe('cancelled');
     expect(stockOf('monitor')).toBe(before);
@@ -555,6 +579,7 @@ describe('review follow-ups (Lab 17 reviewer findings)', () => {
 
     const paySuccess = await pay(paidId, OK_TOKEN);
     const payFailure = await pay(failedId, FAIL_TOKEN);
+    const payRejected = await pay(failedId, OK_TOKEN); // 400 거부 응답(Issue #6)도 검사 대상
     const getPaid = await request(app).get(`/orders/${paidId}`);
     const getFailed = await request(app).get(`/orders/${failedId}`);
     const getPending = await request(app).get(`/orders/${pendingOrder.body.id as string}`);
@@ -562,7 +587,8 @@ describe('review follow-ups (Lab 17 reviewer findings)', () => {
 
     expect(paySuccess.status).toBe(200);
     expect(payFailure.status).toBe(402);
-    for (const response of [paySuccess, payFailure, getPaid, getFailed, getPending, admin]) {
+    expect(payRejected.status).toBe(400);
+    for (const response of [paySuccess, payFailure, payRejected, getPaid, getFailed, getPending, admin]) {
       expect(containsToken(response.body)).toBe(false);
     }
     expect(containsToken(Array.from(orders.values()))).toBe(false);
@@ -580,7 +606,12 @@ describe('review follow-ups (Lab 17 reviewer findings)', () => {
     const row = (admin.body as Array<Record<string, unknown>>).find((o) => o.id === orderId);
 
     expect(retry.status).toBe(400);
-    expect(retry.body).toEqual({ message: 'Order is not payable' });
+    expect(retry.body).toEqual({
+      message: 'Order is not payable',
+      status: 'payment_failed',
+      reason: 'repayment_not_allowed',
+      nextAction: 'create_new_order',
+    });
     expect(orders.get(orderId)?.status).toBe('payment_failed');
     expect(paymentAttempts.filter((a) => a.orderId === orderId && !a.ok)).toHaveLength(1);
     expect(stockOf('keyboard')).toBe(before);

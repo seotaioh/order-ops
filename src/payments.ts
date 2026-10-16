@@ -42,6 +42,40 @@ function isPayable(order: Order): boolean {
   return order.status === 'pending' && order.totalKrw > 0;
 }
 
+/** 결제 거부 사유. 고정 코드 집합만 쓰며 카드 정보·내부 오류를 담지 않는다 (Issue #6 결정 3). */
+type PaymentRejectionReason =
+  | 'repayment_not_allowed'
+  | 'already_paid'
+  | 'order_cancelled'
+  | 'order_refunded'
+  | 'not_payable';
+
+type NextAction = 'create_new_order' | 'none';
+
+interface PaymentRejection {
+  message: 'Order is not payable';
+  status: Order['status'];
+  reason: PaymentRejectionReason;
+  nextAction: NextAction;
+}
+
+/** 거부 응답은 전환이 아니므로 상태·이력·재고를 바꾸지 않는다. 고객·운영자에게 사유와 다음 행동만 알린다. */
+function describeRejection(order: Order): PaymentRejection {
+  const base = { message: 'Order is not payable' as const, status: order.status };
+  switch (order.status) {
+    case 'payment_failed':
+      return { ...base, reason: 'repayment_not_allowed', nextAction: 'create_new_order' };
+    case 'paid':
+      return { ...base, reason: 'already_paid', nextAction: 'none' };
+    case 'cancelled':
+      return { ...base, reason: 'order_cancelled', nextAction: 'create_new_order' };
+    case 'refunded':
+      return { ...base, reason: 'order_refunded', nextAction: 'create_new_order' };
+    default:
+      return { ...base, reason: 'not_payable', nextAction: 'none' };
+  }
+}
+
 function recordSuccess(order: Order): PaymentAttempt {
   const attempt: PaymentAttempt = {
     orderId: order.id,
@@ -84,7 +118,7 @@ paymentsRouter.post(
     }
 
     if (!isPayable(order)) {
-      res.status(400).json({ message: 'Order is not payable' });
+      res.status(400).json(describeRejection(order));
       return;
     }
 
