@@ -48,6 +48,7 @@
 - 성공 응답은 `200`, `{ "ok": true, "order", "refund": { "amountKrw", "at" } }`이다.
 - 환불 가능 상태가 아닌 주문(`pending`·`payment_failed`·`refunded`·`cancelled`)은 `400 { "message": "Order is not refundable", "status" }`로 거부하고 상태·이력·재고를 바꾸지 않는다. 존재하지 않는 주문은 `404`.
 - `refunded` 주문의 재결제는 `400 { "message": "Order is not payable" }`로 거부한다(주문 상태 정책의 보류 전환).
+- `cancelled` 주문의 결제 요청도 같은 응답으로 거부한다(주문 상태 정책의 금지 전환 `cancelled → paid`). 취소된 주문은 금액이 지급된 적이 없으므로 환불 대상도 아니다.
 
 ## 보류 사항
 

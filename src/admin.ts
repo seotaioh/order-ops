@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import {
+  cancellations,
   orders,
   paymentAttempts,
   refunds,
@@ -20,6 +21,10 @@ interface AdminRefund {
   at: string;
 }
 
+interface AdminCancellation {
+  at: string;
+}
+
 interface AdminOrder {
   id: string;
   totalKrw: number;
@@ -29,10 +34,12 @@ interface AdminOrder {
   failure?: AdminPaymentFailure;
   /** refunded 주문에만 존재한다. */
   refund?: AdminRefund;
+  /** cancelled 주문에만 존재한다. */
+  cancellation?: AdminCancellation;
 }
 
 class InconsistentRecordError extends Error {
-  constructor(readonly orderId: string, readonly kind: 'payment failure' | 'refund', detail: string) {
+  constructor(readonly orderId: string, readonly kind: 'payment failure' | 'refund' | 'cancellation', detail: string) {
     super(`Inconsistent ${kind} record for order ${orderId}: ${detail}`);
   }
 }
@@ -56,6 +63,15 @@ function findFailure(order: Order): AdminPaymentFailure {
   return { amountKrw: attempt.amountKrw, at: attempt.at, reason: attempt.failureReason };
 }
 
+/** cancelled 주문은 자기 취소 이력이 정확히 하나여야 한다. 아니면 데이터 불일치다. */
+function findCancellation(order: Order): AdminCancellation {
+  const own = cancellations.filter((c) => c.orderId === order.id);
+  if (own.length !== 1) {
+    throw new InconsistentRecordError(order.id, 'cancellation', `${own.length} cancellations`);
+  }
+  return { at: own[0].at };
+}
+
 /** refunded 주문은 자기 환불 이력이 정확히 하나여야 한다. 아니면 데이터 불일치다. */
 function findRefund(order: Order): AdminRefund {
   const own = refunds.filter((refund) => refund.orderId === order.id);
@@ -77,6 +93,9 @@ function toAdminOrder(order: Order): AdminOrder {
   }
   if (order.status === 'refunded') {
     base.refund = findRefund(order);
+  }
+  if (order.status === 'cancelled') {
+    base.cancellation = findCancellation(order);
   }
   return base;
 }

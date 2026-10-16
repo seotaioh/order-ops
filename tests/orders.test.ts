@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { app } from '../src/server.js';
-import { orders, paymentAttempts, products, refunds, resetStore } from '../src/store.js';
+import { cancellations, orders, paymentAttempts, products, refunds, resetStore } from '../src/store.js';
 
 function stockOf(productId: string): number {
   const product = products.get(productId);
@@ -21,6 +21,10 @@ async function pay(orderId: string, cardToken: string) {
 
 async function refund(orderId: string) {
   return request(app).post(`/orders/${orderId}/refund`).send({});
+}
+
+async function cancel(orderId: string) {
+  return request(app).post(`/orders/${orderId}/cancel`).send({});
 }
 
 describe('order operations', () => {
@@ -353,5 +357,116 @@ describe('refund flow', () => {
     expect(typeof (refundedRow?.refund as Record<string, unknown>).at).toBe('string');
     expect(refundedRow).not.toHaveProperty('failure');
     expect(paidRow).not.toHaveProperty('refund');
+  });
+});
+
+describe('cancel flow', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  async function pendingOrder(productId: string, quantity: number): Promise<string> {
+    const created = await createOrder([{ productId, quantity }]);
+    expect(created.status).toBe(201);
+    return created.body.id as string;
+  }
+
+  it('cancels a pending order without touching stock and records the cancellation', async () => {
+    const before = stockOf('keyboard');
+    const orderId = await pendingOrder('keyboard', 2);
+
+    const response = await cancel(orderId);
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.order.status).toBe('cancelled');
+    expect(typeof response.body.cancellation.at).toBe('string');
+    expect(orders.get(orderId)?.status).toBe('cancelled');
+    expect(stockOf('keyboard')).toBe(before);
+    expect(cancellations.filter((c) => c.orderId === orderId)).toHaveLength(1);
+
+    const fetched = await request(app).get(`/orders/${orderId}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.status).toBe('cancelled');
+  });
+
+  it('rejects cancelling a paid order (policy forbids paid → cancelled)', async () => {
+    const orderId = await pendingOrder('keyboard', 1);
+    await pay(orderId, 'CARD-1');
+    const before = stockOf('keyboard');
+
+    const response = await cancel(orderId);
+
+    expect(response.status).not.toBe(200);
+    expect(orders.get(orderId)?.status).toBe('paid');
+    expect(stockOf('keyboard')).toBe(before);
+    expect(cancellations).toHaveLength(0);
+  });
+
+  it('rejects cancelling payment_failed and refunded orders', async () => {
+    const failedId = await pendingOrder('mouse', 1);
+    await pay(failedId, 'FAIL-1');
+    const refundedId = await pendingOrder('mouse', 1);
+    await pay(refundedId, 'CARD-1');
+    await refund(refundedId);
+
+    const failedResponse = await cancel(failedId);
+    const refundedResponse = await cancel(refundedId);
+
+    expect(failedResponse.status).not.toBe(200);
+    expect(refundedResponse.status).not.toBe(200);
+    expect(orders.get(failedId)?.status).toBe('payment_failed');
+    expect(orders.get(refundedId)?.status).toBe('refunded');
+    expect(cancellations).toHaveLength(0);
+  });
+
+  it('does not cancel the same order twice', async () => {
+    const orderId = await pendingOrder('mouse', 1);
+    await cancel(orderId);
+
+    const second = await cancel(orderId);
+
+    expect(second.status).not.toBe(200);
+    expect(cancellations.filter((c) => c.orderId === orderId)).toHaveLength(1);
+  });
+
+  it('does not allow paying or refunding a cancelled order', async () => {
+    const orderId = await pendingOrder('monitor', 1);
+    await cancel(orderId);
+    const before = stockOf('monitor');
+
+    const payResponse = await pay(orderId, 'CARD-1');
+    const refundResponse = await refund(orderId);
+
+    expect(payResponse.status).not.toBe(200);
+    expect(refundResponse.status).not.toBe(200);
+    expect(orders.get(orderId)?.status).toBe('cancelled');
+    expect(stockOf('monitor')).toBe(before);
+    expect(paymentAttempts).toHaveLength(0);
+    expect(refunds).toHaveLength(0);
+  });
+
+  it('returns 404 when cancelling an unknown order', async () => {
+    const response = await cancel('no-such-order');
+
+    expect(response.status).toBe(404);
+  });
+
+  it('shows cancelled orders in the admin list with the cancellation time only', async () => {
+    const cancelledId = await pendingOrder('keyboard', 1);
+    await cancel(cancelledId);
+    const pendingId = await pendingOrder('mouse', 1);
+
+    const response = await request(app).get('/admin/orders');
+    const rows = response.body as Array<Record<string, unknown>>;
+    const cancelledRow = rows.find((o) => o.id === cancelledId);
+    const pendingRow = rows.find((o) => o.id === pendingId);
+
+    expect(response.status).toBe(200);
+    expect(cancelledRow?.status).toBe('cancelled');
+    expect(typeof (cancelledRow?.cancellation as Record<string, unknown>).at).toBe('string');
+    expect(cancelledRow).not.toHaveProperty('failure');
+    expect(cancelledRow).not.toHaveProperty('refund');
+    expect(pendingRow).not.toHaveProperty('cancellation');
   });
 });

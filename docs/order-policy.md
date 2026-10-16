@@ -92,6 +92,20 @@
 - `order.status === "refunded"`일 때만 환불 정보 `refund { amountKrw, at }`를 붙인다. 환불 이력이 있다는 이유만으로 다른 상태를 덮어쓰지 않는다.
 - `refunded` 주문의 환불 이력이 정확히 하나가 아니면 데이터 불일치로 판정하고, 결제 실패 불일치와 같은 방식으로 `500`과 `{ "message": "Inconsistent refund record", "orderId" }`를 반환한다.
 
+### `cancelled` 주문 표시 조건 (2026-10-16 확정)
+
+- `order.status === "cancelled"`일 때만 취소 정보 `cancellation { at }`를 붙인다.
+- `cancelled` 주문의 취소 이력이 정확히 하나가 아니면 데이터 불일치로 판정하고 `500`과 `{ "message": "Inconsistent cancellation record", "orderId" }`를 반환한다.
+
+## 취소 전환의 구현 (2026-10-16 확정)
+
+`pending → cancelled` 전환은 `POST /orders/:id/cancel`로 구현한다. 요청 본문은 없다.
+
+- 취소는 `pending` 주문에만 허용한다. `paid`·`refunded`는 금지 전환, `payment_failed`·`cancelled`는 표에 없는 보류 전환이므로 모두 `400 { "message": "Order is not cancellable", "status" }`로 거부하며, 거부는 상태·이력·재고를 바꾸지 않는다. 존재하지 않는 주문은 `404`.
+- 성공 응답은 `200`, `{ "ok": true, "order", "cancellation": { "at" } }`이며 취소 시각을 이력으로 보존한다.
+- 결제 전 주문은 재고를 차감한 적이 없으므로 취소로 재고가 변하지 않는다([재고 정책](inventory-policy.md)).
+- `cancelled` 주문의 결제·환불 요청은 각각 `Order is not payable`·`Order is not refundable`로 거부한다. `cancelled → pending` 재개는 여전히 보류다.
+
 ## 환불 전환의 구현 (2026-10-16 확정)
 
 `paid → refunded` 전환은 `POST /orders/:id/refund`로 구현한다. 상세 응답과 재고 처리는 [결제 정책](payment-policy.md)과 [재고 정책](inventory-policy.md)이 정한다. 이 문서가 정하는 것은 다음이다.
@@ -101,7 +115,7 @@
 
 ## 구현 범위와의 분리
 
-`cancelled`는 정책상 의미와 전환 경계를 정의하지만, 이 문서만으로 해당 흐름의 코드 변경을 지시하지 않는다(취소 엔드포인트는 아직 없다). 저장 기술도 이 상태 정책의 결정 범위가 아니다.
+다섯 상태와 허용 전환은 모두 구현되었다. 보류 전환(`cancelled → pending`, `refunded → paid`)은 거부로 남아 있으며, 저장 기술은 이 상태 정책의 결정 범위가 아니다.
 
 ## 근거
 

@@ -112,3 +112,23 @@ plan 적용 위치: [수정 범위 — 주문 생성과 재고 부족 주문 차
 ### 여전히 보류
 
 - 부분 환불, 외부 결제 제공자 연동 시 비동기 환불, `cancelled` 엔드포인트(`pending → cancelled`), `cancelled → pending` 재개, 네트워크 재시도.
+
+## 2026-10-16 취소 흐름 확정
+
+저장소 소유자의 「취소 엔드포인트도 구현」 요청으로 확정. 적용 위치: `docs/order-policy.md` 「취소 전환의 구현」, [구현 기록](cancel-implementation.md).
+
+### 취소 API와 허용 상태
+
+처리 상태: 확정 — `POST /orders/:id/cancel`, 본문 없음. `pending`만 허용, 그 외 `400 { message: 'Order is not cancellable', status }`, 불변. 취소 시각 이력 보존.
+
+### 취소 시 재고
+
+처리 상태: 확정 — 변경 없음(`pending`은 차감된 적이 없음).
+
+### 관리자 목록의 취소 정보
+
+처리 상태: 확정 — `cancelled` 주문에만 `cancellation { at }`. 이력이 하나가 아니면 `500`.
+
+### 여전히 보류
+
+- `cancelled → pending` 재개, `refunded → paid`, 부분 환불, 외부 결제사 비동기 환불, 네트워크 재시도.
