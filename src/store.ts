@@ -1,4 +1,7 @@
-export type OrderStatus = 'pending' | 'paid' | 'cancelled';
+export type OrderStatus = 'pending' | 'paid' | 'payment_failed' | 'cancelled';
+
+/** 관리자에게 제공해도 안전한 결제 실패 사유 코드. 카드 정보·내부 오류를 담지 않는다. */
+export type PaymentFailureReason = 'card_declined';
 
 export interface Product {
   id: string;
@@ -25,6 +28,8 @@ export interface PaymentAttempt {
   ok: boolean;
   amountKrw: number;
   at: string;
+  /** 실패 시도에만 존재한다. 성공 시도에는 붙이지 않는다. */
+  failureReason?: PaymentFailureReason;
 }
 
 const seedProducts: Product[] = [
