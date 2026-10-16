@@ -79,7 +79,7 @@ plan 적용 위치: [수정 범위 — 주문 생성과 재고 부족 주문 차
 
 ### `payment_failed` 주문 재결제 거부 응답
 
-처리 상태: 확정 — 기존 `400 { message: 'Order is not payable' }` 유지, 새 정책을 만들지 않음. 적용: `docs/payment-policy.md` 「확정된 응답」
+처리 상태: 확정 — 기존 `400 { message: 'Order is not payable' }` 유지, 새 정책을 만들지 않음. 적용: `docs/payment-policy.md` 「확정된 응답」 → **2026-10-16 Issue #6 결정으로 본문이 `{ message, status, reason, nextAction }`로 확장됨(상태 코드 400은 유지). 아래 「Issue #6 결정」 참조**
 
 ### 결제 시점 재고 부족
 
@@ -99,7 +99,7 @@ plan 적용 위치: [수정 범위 — 주문 생성과 재고 부족 주문 차
 
 ### 환불 가능 상태와 거부 응답
 
-처리 상태: 확정 — `paid`만 허용. 그 밖의 상태는 `400 { message: 'Order is not refundable', status }`, 상태·이력·재고 불변. `refunded` 주문의 재결제는 기존 `400 Order is not payable`.
+처리 상태: 확정 — `paid`만 허용. 그 밖의 상태는 `400 { message: 'Order is not refundable', status }`, 상태·이력·재고 불변. `refunded` 주문의 재결제는 기존 `400 Order is not payable` → Issue #6 결정으로 `reason: order_refunded` 포함 본문으로 확장.
 
 ### 환불 시 재고 복원
 
@@ -148,3 +148,32 @@ reviewer 발견 사항 중 소유자가 「보류 항목으로 기록 / 별도 �
 ### 응답 DTO 분리 (PI-6)
 
 처리 상태: 설계 메모 — 결제 성공 응답과 `GET /orders/:id`가 원본 `Order`를 그대로 직렬화한다. `Order`에 민감 필드를 추가할 때 DTO 분리를 검토한다.
+
+## Issue #6 결정 (2026-10-16)
+
+저장소 소유자가 Claude Code 대화에서 확정. 적용: `docs/payment-policy.md` 「확정된 응답」·「결제 거부 사유 코드」, `src/payments.ts`, `tests/orders.test.ts`, 계획 `notes/plans/issue-6-repayment-rejection-guidance.md`.
+
+### 1. 실패 주문 재결제 금지 정책
+
+처리 상태: 확정 — **유지(A)**. `payment_failed → paid` 전환은 계속 금지.
+
+### 2. 거부 응답 상태 코드
+
+처리 상태: 확정 — **400 유지**. 환불·취소 거부와 일관되고, 409는 재고 부족에 이미 쓰인다.
+
+### 3. 안내 형식
+
+처리 상태: 확정 — 본문 `{ message: 'Order is not payable', status, reason, nextAction }`. 사유·다음 행동은 고정 코드 집합(정책 문서 표 참고).
+
+### 4. VOC 환경 확인
+
+처리 상태: 확정 — 현재 코드 기준으로 닫는다. 이 fork에서는 VOC의 「재결제 성공」 환경을 재현할 수 없다(`notes/issue-exploration-l18.md` H1·H4).
+
+### Out of Scope로 확정
+
+- 거부된 재결제를 결제 시도 이력에 남기는 것 (관리자 불변식 충돌)
+- 고객용 UI
+
+### 연결된 보류 항목
+
+- `nextAction: create_new_order`를 `refunded`·`cancelled`에 돌려주는 것은 `cancelled → pending` 재개와 `refunded → paid` 재결제가 **보류(닫힘)**인 현재를 전제한다. 그 보류가 열리면 이 코드 값도 함께 재검토한다.

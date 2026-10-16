@@ -38,8 +38,20 @@
 | 사건 | 응답 | 이력·상태 |
 | --- | --- | --- |
 | 결제 실패 (결제 수단 거절) | `402 Payment Required`, `{ "ok": false, "orderId", "status": "payment_failed", "failure": { "reason", "amountKrw", "at" } }` | 실패 시도 이력에 `failureReason` 저장. `reason`은 안전한 사유 코드(현재 `card_declined`)만 사용 |
-| `payment_failed` 주문 재결제 요청 | `400 Bad Request`, `{ "message": "Order is not payable" }` (결제 가능 상태가 아닌 주문에 쓰던 기존 응답을 그대로 사용) | 상태·이력·재고 변경 없음 |
+| 결제 가능 상태가 아닌 주문의 결제 요청 (`payment_failed` 재결제 포함) | `400 Bad Request`, `{ "message": "Order is not payable", "status": "<주문 상태>", "reason": "<사유 코드>", "nextAction": "<다음 행동>" }` (2026-10-16 Issue #6 결정: 상태 코드는 400 유지, 본문에 사유·다음 행동 추가) | 상태·이력·재고 변경 없음. 거부된 요청은 결제 시도 이력에 남기지 않는다 |
 | 결제 시점 재고 부족 | `409 Conflict`, `{ "message": "Insufficient stock", "productId" }` | 결제 시도 이력을 남기지 않음. 주문은 `pending` 유지. 재고 판정 자체는 [재고 정책](inventory-policy.md)을 따름 |
+
+## 결제 거부 사유 코드 (2026-10-16 확정, Issue #6)
+
+| 주문 상태 | `reason` | `nextAction` |
+| --- | --- | --- |
+| `payment_failed` | `repayment_not_allowed` | `create_new_order` |
+| `paid` | `already_paid` | `none` |
+| `cancelled` | `order_cancelled` | `create_new_order` |
+| `refunded` | `order_refunded` | `create_new_order` |
+| 그 밖의 결제 불가 (`pending`이지만 결제 조건 미충족) | `not_payable` | `none` |
+
+`reason`과 `nextAction`은 위 고정 코드만 쓴다. 카드 정보·내부 오류·원시 오류 응답은 넣지 않는다. 거부 요청을 이력으로 남기지 않는 이유는 관리자 조회 기준의 「`payment_failed` 주문의 실패 이력은 정확히 하나」 불변식을 지키기 위해서다.
 
 ## 환불 (2026-10-16 확정)
 
@@ -47,8 +59,8 @@
 - 이 저장소는 실결제 연동이 없으므로 금액 반환은 요청 즉시 완료되는 것으로 모사한다. 완료된 환불은 `orderId`·`amountKrw`(주문 총액)·`at`을 이력으로 보존한다.
 - 성공 응답은 `200`, `{ "ok": true, "order", "refund": { "amountKrw", "at" } }`이다.
 - 환불 가능 상태가 아닌 주문(`pending`·`payment_failed`·`refunded`·`cancelled`)은 `400 { "message": "Order is not refundable", "status" }`로 거부하고 상태·이력·재고를 바꾸지 않는다. 존재하지 않는 주문은 `404`.
-- `refunded` 주문의 재결제는 `400 { "message": "Order is not payable" }`로 거부한다(주문 상태 정책의 보류 전환).
-- `cancelled` 주문의 결제 요청도 같은 응답으로 거부한다(주문 상태 정책의 금지 전환 `cancelled → paid`). 취소된 주문은 금액이 지급된 적이 없으므로 환불 대상도 아니다.
+- `refunded` 주문의 재결제는 「확정된 응답」의 결제 거부 응답(`Order is not payable`, `reason: order_refunded`, `nextAction: create_new_order`)으로 거부한다(주문 상태 정책의 보류 전환).
+- `cancelled` 주문의 결제 요청도 결제 거부 응답(`reason: order_cancelled`, `nextAction: create_new_order`)으로 거부한다(주문 상태 정책의 금지 전환 `cancelled → paid`). 취소된 주문은 금액이 지급된 적이 없으므로 환불 대상도 아니다.
 
 ## 보류 사항
 
