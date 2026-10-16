@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import {
   orders,
   paymentAttempts,
+  refunds,
   type Order,
   type OrderStatus,
   type PaymentFailureReason,
@@ -14,6 +15,11 @@ interface AdminPaymentFailure {
   reason: PaymentFailureReason;
 }
 
+interface AdminRefund {
+  amountKrw: number;
+  at: string;
+}
+
 interface AdminOrder {
   id: string;
   totalKrw: number;
@@ -21,11 +27,13 @@ interface AdminOrder {
   createdAt: string;
   /** payment_failed 주문에만 존재한다. 다른 상태에는 빈 값으로도 붙이지 않는다. */
   failure?: AdminPaymentFailure;
+  /** refunded 주문에만 존재한다. */
+  refund?: AdminRefund;
 }
 
-class InconsistentFailureRecordError extends Error {
-  constructor(readonly orderId: string, detail: string) {
-    super(`Inconsistent payment failure record for order ${orderId}: ${detail}`);
+class InconsistentRecordError extends Error {
+  constructor(readonly orderId: string, readonly kind: 'payment failure' | 'refund', detail: string) {
+    super(`Inconsistent ${kind} record for order ${orderId}: ${detail}`);
   }
 }
 
@@ -39,13 +47,22 @@ class InconsistentFailureRecordError extends Error {
 function findFailure(order: Order): AdminPaymentFailure {
   const failed = paymentAttempts.filter((attempt) => attempt.orderId === order.id && !attempt.ok);
   if (failed.length !== 1) {
-    throw new InconsistentFailureRecordError(order.id, `${failed.length} failed attempts`);
+    throw new InconsistentRecordError(order.id, 'payment failure', `${failed.length} failed attempts`);
   }
   const [attempt] = failed;
   if (!attempt.failureReason) {
-    throw new InconsistentFailureRecordError(order.id, 'missing failure reason');
+    throw new InconsistentRecordError(order.id, 'payment failure', 'missing failure reason');
   }
   return { amountKrw: attempt.amountKrw, at: attempt.at, reason: attempt.failureReason };
+}
+
+/** refunded 주문은 자기 환불 이력이 정확히 하나여야 한다. 아니면 데이터 불일치다. */
+function findRefund(order: Order): AdminRefund {
+  const own = refunds.filter((refund) => refund.orderId === order.id);
+  if (own.length !== 1) {
+    throw new InconsistentRecordError(order.id, 'refund', `${own.length} refunds`);
+  }
+  return { amountKrw: own[0].amountKrw, at: own[0].at };
 }
 
 function toAdminOrder(order: Order): AdminOrder {
@@ -58,6 +75,9 @@ function toAdminOrder(order: Order): AdminOrder {
   if (order.status === 'payment_failed') {
     base.failure = findFailure(order);
   }
+  if (order.status === 'refunded') {
+    base.refund = findRefund(order);
+  }
   return base;
 }
 
@@ -67,9 +87,9 @@ adminRouter.get('/orders', (_req: Request, res: Response) => {
   try {
     res.json(Array.from(orders.values(), toAdminOrder));
   } catch (error) {
-    if (error instanceof InconsistentFailureRecordError) {
-      // 내부 예외 메시지는 노출하지 않고, 어느 주문이 불일치인지만 알린다.
-      res.status(500).json({ message: 'Inconsistent payment failure record', orderId: error.orderId });
+    if (error instanceof InconsistentRecordError) {
+      // 내부 예외 메시지는 노출하지 않고, 어느 주문의 어떤 이력이 불일치인지만 알린다.
+      res.status(500).json({ message: `Inconsistent ${error.kind} record`, orderId: error.orderId });
       return;
     }
     throw error;

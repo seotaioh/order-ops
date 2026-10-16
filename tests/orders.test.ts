@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { app } from '../src/server.js';
-import { orders, paymentAttempts, products, resetStore } from '../src/store.js';
+import { orders, paymentAttempts, products, refunds, resetStore } from '../src/store.js';
 
 function stockOf(productId: string): number {
   const product = products.get(productId);
@@ -17,6 +17,10 @@ async function createOrder(items: Array<{ productId: string; quantity: number }>
 
 async function pay(orderId: string, cardToken: string) {
   return request(app).post(`/orders/${orderId}/pay`).send({ cardToken });
+}
+
+async function refund(orderId: string) {
+  return request(app).post(`/orders/${orderId}/refund`).send({});
 }
 
 describe('order operations', () => {
@@ -236,5 +240,118 @@ describe('admin order list', () => {
     expect(pendingRow).not.toHaveProperty('failure');
     expect(paidRow).not.toHaveProperty('failure');
     expect(rows.some((o) => o.status === '결제실패')).toBe(false);
+  });
+});
+
+describe('refund flow', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  async function paidOrder(productId: string, quantity: number): Promise<string> {
+    const created = await createOrder([{ productId, quantity }]);
+    const orderId = created.body.id as string;
+    const paid = await pay(orderId, 'CARD-1');
+    expect(paid.status).toBe(200);
+    return orderId;
+  }
+
+  it('refunds a paid order: status refunded, stock restored once, refund recorded', async () => {
+    const before = stockOf('keyboard'); // 5
+    const orderId = await paidOrder('keyboard', 2);
+    expect(stockOf('keyboard')).toBe(before - 2);
+
+    const response = await refund(orderId);
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(response.body.order.status).toBe('refunded');
+    expect(response.body.refund).toMatchObject({ amountKrw: 98_000 });
+    expect(typeof response.body.refund.at).toBe('string');
+    expect(orders.get(orderId)?.status).toBe('refunded');
+    expect(stockOf('keyboard')).toBe(before);
+    expect(refunds.filter((r) => r.orderId === orderId)).toHaveLength(1);
+
+    const fetched = await request(app).get(`/orders/${orderId}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.status).toBe('refunded');
+  });
+
+  it('rejects refund of a pending order without changing anything', async () => {
+    const created = await createOrder([{ productId: 'mouse', quantity: 1 }]);
+    const orderId = created.body.id as string;
+    const before = stockOf('mouse');
+
+    const response = await refund(orderId);
+
+    expect(response.status).not.toBe(200);
+    expect(orders.get(orderId)?.status).toBe('pending');
+    expect(stockOf('mouse')).toBe(before);
+    expect(refunds).toHaveLength(0);
+  });
+
+  it('rejects refund of a payment_failed order without changing anything', async () => {
+    const created = await createOrder([{ productId: 'mouse', quantity: 1 }]);
+    const orderId = created.body.id as string;
+    await pay(orderId, 'FAIL-1');
+    const before = stockOf('mouse');
+
+    const response = await refund(orderId);
+
+    expect(response.status).not.toBe(200);
+    expect(orders.get(orderId)?.status).toBe('payment_failed');
+    expect(stockOf('mouse')).toBe(before);
+    expect(refunds).toHaveLength(0);
+  });
+
+  it('does not refund or restore stock twice for the same order', async () => {
+    const before = stockOf('monitor'); // 2
+    const orderId = await paidOrder('monitor', 1);
+    await refund(orderId);
+
+    const second = await refund(orderId);
+
+    expect(second.status).not.toBe(200);
+    expect(orders.get(orderId)?.status).toBe('refunded');
+    expect(stockOf('monitor')).toBe(before);
+    expect(refunds.filter((r) => r.orderId === orderId)).toHaveLength(1);
+  });
+
+  it('does not allow paying a refunded order again', async () => {
+    const orderId = await paidOrder('keyboard', 1);
+    await refund(orderId);
+    const before = stockOf('keyboard');
+    const attemptsBefore = paymentAttempts.length;
+
+    const response = await pay(orderId, 'CARD-2');
+
+    expect(response.status).not.toBe(200);
+    expect(orders.get(orderId)?.status).toBe('refunded');
+    expect(stockOf('keyboard')).toBe(before);
+    expect(paymentAttempts.length).toBe(attemptsBefore);
+  });
+
+  it('returns 404 when refunding an unknown order', async () => {
+    const response = await refund('no-such-order');
+
+    expect(response.status).toBe(404);
+  });
+
+  it('shows refunded orders in the admin list with refund amount and time only', async () => {
+    const refundedId = await paidOrder('keyboard', 1);
+    await refund(refundedId);
+    const paidId = await paidOrder('mouse', 1);
+
+    const response = await request(app).get('/admin/orders');
+    const rows = response.body as Array<Record<string, unknown>>;
+    const refundedRow = rows.find((o) => o.id === refundedId);
+    const paidRow = rows.find((o) => o.id === paidId);
+
+    expect(response.status).toBe(200);
+    expect(refundedRow?.status).toBe('refunded');
+    expect(refundedRow?.refund).toMatchObject({ amountKrw: 49_000 });
+    expect(typeof (refundedRow?.refund as Record<string, unknown>).at).toBe('string');
+    expect(refundedRow).not.toHaveProperty('failure');
+    expect(paidRow).not.toHaveProperty('refund');
   });
 });

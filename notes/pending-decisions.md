@@ -88,3 +88,27 @@ plan 적용 위치: [수정 범위 — 주문 생성과 재고 부족 주문 차
 ### 관리자 목록에서 `payment_failed` 주문의 실패 이력이 하나가 아닐 때
 
 처리 상태: 확정 — 데이터 불일치로 보고 `500 { message: 'Inconsistent payment failure record', orderId }`. 여러 이력 중 선택 규칙은 만들지 않음. 적용: `docs/order-policy.md` 「`payment_failed` 주문 표시 조건」
+
+## 2026-10-16 환불 흐름 확정
+
+저장소 소유자가 「환불 흐름도 결정해서 구현해 달라」고 위임해, 아래를 확정하고 구현했다. 적용 위치: `docs/order-policy.md` 「환불 전환의 구현」, `docs/payment-policy.md` 「환불」, `docs/inventory-policy.md` 「환불 시 재고 복원」, [구현 기록](refund-implementation.md).
+
+### 환불 API와 금액 반환 방식
+
+처리 상태: 확정 — `POST /orders/:id/refund`, 본문 없음, 전액 환불만. 실결제 연동이 없으므로 금액 반환은 즉시 완료로 모사하고 환불 이력을 보존.
+
+### 환불 가능 상태와 거부 응답
+
+처리 상태: 확정 — `paid`만 허용. 그 밖의 상태는 `400 { message: 'Order is not refundable', status }`, 상태·이력·재고 불변. `refunded` 주문의 재결제는 기존 `400 Order is not payable`.
+
+### 환불 시 재고 복원
+
+처리 상태: 확정 — 환불 완료 시점에 결제 성공 때 차감한 수량을 주문 전체 기준으로 한 번 복원.
+
+### 관리자 목록의 환불 정보
+
+처리 상태: 확정 — `refunded` 주문에만 `refund { amountKrw, at }` 첨부. 환불 이력이 하나가 아니면 데이터 불일치로 `500`.
+
+### 여전히 보류
+
+- 부분 환불, 외부 결제 제공자 연동 시 비동기 환불, `cancelled` 엔드포인트(`pending → cancelled`), `cancelled → pending` 재개, 네트워크 재시도.
