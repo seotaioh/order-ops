@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { findInsufficientProduct } from './inventory.js';
 import {
   orders,
   products,
@@ -56,11 +57,12 @@ ordersRouter.post('/', (req: Request<unknown, unknown, CreateOrderBody>, res: Re
     return;
   }
 
-  for (const item of items) {
-    const product = products.get(item.productId);
-    if (product) {
-      product.stock -= item.quantity;
-    }
+  // 재고 정책: 저장 전에 합산 수량으로 검사하고, 부족하면 저장·차감 없이 차단한다.
+  // 생성 시점에는 재고를 차감하지 않는다. 차감은 결제 성공 시점(payments.ts)에만 한다.
+  const insufficient = findInsufficientProduct(items);
+  if (insufficient !== null) {
+    res.status(409).json({ message: 'Insufficient stock', productId: insufficient });
+    return;
   }
 
   const order: Order = {

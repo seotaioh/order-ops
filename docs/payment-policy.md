@@ -33,10 +33,17 @@
 
 이 문서가 주문 상태 정책이나 재고 정책과 같은 사건에 다른 결과를 요구하면 구현 전에 사람에게 확인한다. 다른 정책의 원칙을 이 문서에 복제해 독립적인 규칙으로 만들지 않는다.
 
+## 확정된 응답 (2026-10-16)
+
+| 사건 | 응답 | 이력·상태 |
+| --- | --- | --- |
+| 결제 실패 (결제 수단 거절) | `402 Payment Required`, `{ "ok": false, "orderId", "status": "payment_failed", "failure": { "reason", "amountKrw", "at" } }` | 실패 시도 이력에 `failureReason` 저장. `reason`은 안전한 사유 코드(현재 `card_declined`)만 사용 |
+| `payment_failed` 주문 재결제 요청 | `400 Bad Request`, `{ "message": "Order is not payable" }` (결제 가능 상태가 아닌 주문에 쓰던 기존 응답을 그대로 사용) | 상태·이력·재고 변경 없음 |
+| 결제 시점 재고 부족 | `409 Conflict`, `{ "message": "Insufficient stock", "productId" }` | 결제 시도 이력을 남기지 않음. 주문은 `pending` 유지. 재고 판정 자체는 [재고 정책](inventory-policy.md)을 따름 |
+
 ## 보류 사항
 
 - 네트워크·인프라 수준 재시도의 허용 조건, 식별 방식과 최대 횟수
-- 결제 시점 재고 부족의 HTTP 상태, 오류 코드와 응답 메시지
 - 환불 API, 금액 반환 처리 방식과 부분 환불 지원 여부
 
 보류 사항은 별도 승인 전까지 구현하거나 허용된 결제 흐름으로 간주하지 않는다.
@@ -45,3 +52,4 @@
 
 - [결정 기록](../notes/pending-decisions.md): 실패 응답, 실패 정보 보존과 동일 주문 재결제 금지에 관한 사람의 결정
 - [주문 상태 변경 계획](../notes/order-status-plan.md): 결제 성공·실패, 재결제 거부와 검증 경계
+- [구현 기록](../notes/order-status-implementation.md): 재결제 거부·결제 시점 재고 부족 응답의 확정 경위 (2026-10-16, 저장소 소유자 승인)
