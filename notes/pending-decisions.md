@@ -132,3 +132,19 @@ plan 적용 위치: [수정 범위 — 주문 생성과 재고 부족 주문 차
 ### 여전히 보류
 
 - `cancelled → pending` 재개, `refunded → paid`, 부분 환불, 외부 결제사 비동기 환불, 네트워크 재시도.
+
+## Lab 17 reviewer 보류 (2026-10-16)
+
+reviewer 발견 사항 중 소유자가 「보류 항목으로 기록 / 별도 작업」으로 정한 것. 출처: `notes/reviewer-findings-l17.md`, 결정은 `notes/role-split-run-l17.md` 결정 표.
+
+### 테스트 보강 후보 (권고)
+
+처리 상태: 보류 — `failure.at`·`refund.at`·`cancellation.at`의 ISO 8601 형식 단언, 관리자 목록 행 수 = 생성 주문 수 단언, 재고 부족 409 본문(`message`, `productId`) 정확값 단언.
+
+### 처리되지 않은 예외의 500 응답 형식 (PI-1)
+
+처리 상태: 보류 — Express 4 기본 에러 핸들러는 `NODE_ENV !== 'production'`에서 스택을 본문에 싣는다. 현재 입력으로 도달하는 경로는 찾지 못했다(전수 증명 아님). 선택지: JSON 에러 미들웨어 추가(본문 형식 결정 필요) / 운영 `NODE_ENV=production` 명문화 / 현행 수용. 결정 뒤 별도 PR.
+
+### 응답 DTO 분리 (PI-6)
+
+처리 상태: 설계 메모 — 결제 성공 응답과 `GET /orders/:id`가 원본 `Order`를 그대로 직렬화한다. `Order`에 민감 필드를 추가할 때 DTO 분리를 검토한다.

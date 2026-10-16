@@ -470,3 +470,127 @@ describe('cancel flow', () => {
     expect(pendingRow).not.toHaveProperty('cancellation');
   });
 });
+
+describe('review follow-ups (Lab 17 reviewer findings)', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  const OK_TOKEN = 'CARD-SECRET-OK-9f1c';
+  const FAIL_TOKEN = 'FAIL-SECRET-TOKEN-7f3a';
+
+  function containsToken(value: unknown): boolean {
+    const text = JSON.stringify(value);
+    return text.includes(OK_TOKEN) || text.includes(FAIL_TOKEN) || text.includes('"cardToken"');
+  }
+
+  it('(b) reports the failure reason as the approved safe code card_declined', async () => {
+    const created = await createOrder([{ productId: 'keyboard', quantity: 1 }]);
+    const orderId = created.body.id as string;
+
+    const response = await pay(orderId, FAIL_TOKEN);
+    const admin = await request(app).get('/admin/orders');
+    const row = (admin.body as Array<Record<string, unknown>>).find((o) => o.id === orderId);
+
+    expect(response.status).toBe(402);
+    expect(response.body.failure.reason).toBe('card_declined');
+    expect((row?.failure as Record<string, unknown>).reason).toBe('card_declined');
+    expect(paymentAttempts.find((a) => a.orderId === orderId)?.failureReason).toBe('card_declined');
+  });
+
+  it('(c) never exposes card tokens or a cardToken key in any response', async () => {
+    const paidOrder = await createOrder([{ productId: 'mouse', quantity: 1 }]);
+    const paidId = paidOrder.body.id as string;
+    const failedOrder = await createOrder([{ productId: 'keyboard', quantity: 1 }]);
+    const failedId = failedOrder.body.id as string;
+    const pendingOrder = await createOrder([{ productId: 'monitor', quantity: 1 }]);
+
+    const paySuccess = await pay(paidId, OK_TOKEN);
+    const payFailure = await pay(failedId, FAIL_TOKEN);
+    const getPaid = await request(app).get(`/orders/${paidId}`);
+    const getFailed = await request(app).get(`/orders/${failedId}`);
+    const getPending = await request(app).get(`/orders/${pendingOrder.body.id as string}`);
+    const admin = await request(app).get('/admin/orders');
+
+    expect(paySuccess.status).toBe(200);
+    expect(payFailure.status).toBe(402);
+    for (const response of [paySuccess, payFailure, getPaid, getFailed, getPending, admin]) {
+      expect(containsToken(response.body)).toBe(false);
+    }
+    expect(containsToken(Array.from(orders.values()))).toBe(false);
+    expect(containsToken(paymentAttempts)).toBe(false);
+  });
+
+  it('(d) rejects a second FAIL attempt on a payment_failed order and keeps exactly one failure record', async () => {
+    const created = await createOrder([{ productId: 'keyboard', quantity: 1 }]);
+    const orderId = created.body.id as string;
+    await pay(orderId, FAIL_TOKEN);
+    const before = stockOf('keyboard');
+
+    const retry = await pay(orderId, 'FAIL-AGAIN-2b8d');
+    const admin = await request(app).get('/admin/orders');
+    const row = (admin.body as Array<Record<string, unknown>>).find((o) => o.id === orderId);
+
+    expect(retry.status).toBe(400);
+    expect(retry.body).toEqual({ message: 'Order is not payable' });
+    expect(orders.get(orderId)?.status).toBe('payment_failed');
+    expect(paymentAttempts.filter((a) => a.orderId === orderId && !a.ok)).toHaveLength(1);
+    expect(stockOf('keyboard')).toBe(before);
+    expect(admin.status).toBe(200);
+    expect(row?.failure).toMatchObject({ reason: 'card_declined' });
+  });
+
+  describe('(a) admin list reports inconsistent failure records with 500 and no internals', () => {
+    async function failedOrder(): Promise<string> {
+      const created = await createOrder([{ productId: 'keyboard', quantity: 1 }]);
+      const orderId = created.body.id as string;
+      const response = await pay(orderId, FAIL_TOKEN);
+      expect(response.status).toBe(402);
+      return orderId;
+    }
+
+    function expectInconsistent(response: request.Response, orderId: string): void {
+      expect(response.status).toBe(500);
+      expect(response.headers['content-type']).toContain('application/json');
+      expect(response.body).toEqual({ message: 'Inconsistent payment failure record', orderId });
+      const text = JSON.stringify(response.body);
+      expect(text).not.toContain('Error');
+      expect(text).not.toContain('at ');
+      expect(text).not.toContain('failed attempts');
+    }
+
+    it('when a payment_failed order has no failure record', async () => {
+      const orderId = await failedOrder();
+      paymentAttempts.splice(0, paymentAttempts.length);
+
+      expectInconsistent(await request(app).get('/admin/orders'), orderId);
+    });
+
+    it('when a payment_failed order has two failure records', async () => {
+      const orderId = await failedOrder();
+      const [first] = paymentAttempts.filter((a) => a.orderId === orderId);
+      paymentAttempts.push({ ...first, at: new Date().toISOString() });
+
+      expectInconsistent(await request(app).get('/admin/orders'), orderId);
+    });
+
+    it('when the failure record has no reason', async () => {
+      const orderId = await failedOrder();
+      const attempt = paymentAttempts.find((a) => a.orderId === orderId);
+      if (!attempt) {
+        throw new Error('expected a failure record');
+      }
+      delete attempt.failureReason;
+
+      expectInconsistent(await request(app).get('/admin/orders'), orderId);
+    });
+
+    it('does not report 500 when records are consistent', async () => {
+      await failedOrder();
+
+      const response = await request(app).get('/admin/orders');
+
+      expect(response.status).toBe(200);
+    });
+  });
+});
